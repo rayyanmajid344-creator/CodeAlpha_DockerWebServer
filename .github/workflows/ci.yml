@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Build the image
+        run: docker build -t my-webserver .
+
+      - name: Start a container
+        run: docker run -d -p 8080:80 --name webserver my-webserver
+
+      - name: Wait until the container is healthy
+        run: |
+          for i in $(seq 1 25); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' webserver)
+            echo "Health status: $status"
+            if [ "$status" = "healthy" ]; then exit 0; fi
+            sleep 3
+          done
+          docker logs webserver
+          exit 1
+
+      - name: Check the page and health endpoint
+        run: |
+          curl -fsS http://localhost:8080/health
+          page=$(curl -fsS http://localhost:8080/)
+          echo "$page" | grep -q "Hello from Docker"
+          container_id=$(docker inspect --format '{{.Config.Hostname}}' webserver)
+          echo "$page" | grep -q "$container_id"
+          echo "Page shows container ID $container_id"
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f webserver
